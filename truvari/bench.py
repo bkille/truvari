@@ -93,6 +93,8 @@ def parse_args(args):
                         help="Bed file of regions to analyze. Only calls within regions are counted")
     filteg.add_argument("--extend", type=truvari.restricted_int, default=0,
                         help="Distance to allow comp entries outside of includebed regions (%(default)s)")
+    filteg.add_argument("--include-single-bnd", action="store_true", default=(not defaults.no_single_bnd),
+                        help="Allow single BNDs to be compared")
 
     args = parser.parse_args(args)
     # When sizefilt is not provided and sizemin has been lowered below the default,
@@ -773,7 +775,8 @@ def bench_main(cmdargs):
 
     params = truvari.VariantParams(args,
                                    short_circuit=args.short,
-                                   decompose=args.no_decompose)
+                                   decompose=args.no_decompose,
+                                   no_single_bnd=not args.include_single_bnd)
 
     m_bench = Bench(params=params,
                     base_vcf=args.base,
