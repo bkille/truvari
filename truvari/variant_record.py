@@ -82,6 +82,59 @@ class VariantRecord:
         """
         return allele_freq_annos(self, samples)
 
+    def bnd_direction(self):
+        """
+        Parses a BND ALT string to determine its direction. Unlike `bnd_direction_strand()`, `bnd_direction` supports unpaired/single BND formatted calls.
+
+        A BND (breakend) ALT string indicates a structural variant breakpoint. This method parses the ALT string to determine:
+
+        - The direction: "left" means the piece is anchored on the left side of the breakpoint, while "right" means it's anchored on the right.
+
+        .. note::
+            This method assumes that `self.is_bnd() or self.is_single_bnd()` is `True`, meaning the variant is a BND-type structural variant.
+
+        :return: A string containing the direction ("left" or "right").
+        :rtype: str
+
+        :raises ValueError: If the ALT string does not follow the expected BND format.
+        """
+        bnd = self.alts[0]
+        if bnd.startswith('[') or bnd.endswith('[') or bnd.endswith('.'):
+            direction = "left"
+        elif bnd.startswith(']') or bnd.endswith(']') or bnd.startswith('.'):
+            direction = "right"
+        else:
+            raise ValueError(f"Invalid BND ALT format: {bnd}")
+        
+        return direction
+    
+    def bnd_strand(self):
+        """
+        Parses a BND ALT string to determine its strand.
+
+        A BND (breakend) ALT string indicates a structural variant breakpoint. This method parses the ALT string to determine:
+
+        - The strand: "direct" indicates the base is on the direct strand, and "complement" indicates the base is on the complement strand.
+
+        .. note::
+            This method assumes that `self.is_bnd()` is `True`, meaning the variant is a BND-type structural variant.
+
+        :return: A string containing the strand ("direct" or "complement").
+        :rtype: str
+
+        :raises ValueError: If the ALT string does not follow the expected BND format.
+        """
+        bnd = self.alts[0]
+        # Determine strand based on the position of the base letter
+        if bnd[0] not in '[]':  # Base letter is at the start (before brackets)
+            strand = "direct"
+        elif bnd[-1] not in '[]':  # Base letter is at the end (after brackets)
+            strand = "complement"
+        else:
+            raise ValueError(f"Invalid BND ALT format: {bnd}")
+        
+        return strand
+        
     def bnd_direction_strand(self):
         """
         Parses a BND ALT string to determine its direction and strand.
@@ -99,23 +152,7 @@ class VariantRecord:
 
         :raises ValueError: If the ALT string does not follow the expected BND format.
         """
-        bnd = self.alts[0]
-        if bnd.startswith('[') or bnd.endswith('['):
-            direction = "left"
-        elif bnd.startswith(']') or bnd.endswith(']'):
-            direction = "right"
-        else:
-            raise ValueError(f"Invalid BND ALT format: {bnd}")
-
-        # Determine strand based on the position of the base letter
-        if bnd[0] not in '[]':  # Base letter is at the start (before brackets)
-            strand = "direct"
-        elif bnd[-1] not in '[]':  # Base letter is at the end (after brackets)
-            strand = "complement"
-        else:
-            raise ValueError(f"Invalid BND ALT format: {bnd}")
-
-        return direction, strand
+        return self.bnd_direction(), self.bnd_strand()
 
     def bnd_position(self):
         """
@@ -273,7 +310,13 @@ class VariantRecord:
         This is performed by decomposing the non-BND into its BND representations before calling bnd_match.
         This will make at least two BNDs, so the MatchResults are sorted and the greater is returned.
         """
-        if self.is_bnd():
+        if self.is_single_bnd():
+            decomp = other.decompose()
+            matches = [self.var_match(d) for d in decomp]
+        elif other.is_single_bnd():
+            decomp = self.decompose()
+            matches = [d.var_match(other) for d in decomp]
+        elif self.is_bnd():
             decomp = other.decompose()
             matches = [self.bnd_match(d) for d in decomp]
         else:
@@ -582,7 +625,7 @@ class VariantRecord:
         If decompose is on, calls VariantRecord.cpx_match
         Otherwise, returns a default MatchResult
         """
-        if not self.is_bnd() and not other.is_bnd():
+        if not self.is_bnd() and not other.is_bnd() and not self.is_single_bnd() and not other.is_single_bnd():
             return self.var_match(other)
         if self.is_bnd() and other.is_bnd():
             return self.bnd_match(other)
@@ -777,7 +820,7 @@ class VariantRecord:
         ret.comp = other
         ret.state = True
 
-        if not self.params.typeignore and not self.same_type(other):
+        if not self.params.typeignore and not self.same_type(other) and not self.is_single_bnd():
             logging.debug("%s and %s are not the same SVTYPE",
                           str(self), str(other))
             ret.state = False
@@ -802,15 +845,24 @@ class VariantRecord:
                 return ret
 
         if not self.params.skip_gt:
-            self.compare_gts(other, ret)
+                self.compare_gts(other, ret)
 
-        ret.ovlpct = self.recovl(other)
-        if ret.ovlpct < self.params.pctovl:
-            logging.debug("%s and %s overlap percent is too low (%.3f)",
-                          str(self), str(other), ret.ovlpct)
-            ret.state = False
-            if self.params.short_circuit:
+        if self.is_single_bnd():
+            b_bnd = self.bnd_direction()
+            c_bnd = other.bnd_direction()
+            ovl = b_bnd == c_bnd
+            if not ovl:
+                logging.debug("%s and %s BND strand/direction mismatch",
+                            str(self), str(other))
                 return ret
+        else:
+            ret.ovlpct = self.recovl(other)
+            if ret.ovlpct < self.params.pctovl:
+                logging.debug("%s and %s overlap percent is too low (%.3f)",
+                            str(self), str(other), ret.ovlpct)
+                ret.state = False
+                if self.params.short_circuit:
+                    return ret
 
         if self.params.pctseq > 0 and self.is_resolved() and other.is_resolved():
             ret.seqsim = self.seqsim(other)
