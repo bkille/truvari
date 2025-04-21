@@ -402,6 +402,18 @@ class VariantRecord:
 
             ret = [record1, record2]
 
+        # elif svtype == truvari.SV.INS:
+        #     record1 = self.copy()
+        #     record1.alts = (f"N[{self.chrom}:{self.pos + 1}[",)
+        #     record1.info["SVTYPE"] = "BND"
+
+        #     record2 = self.copy()
+        #     record2.pos = self.pos + 1
+        #     record2.alts = (f"]{self.chrom}:{self.pos}]N",)
+        #     record2.info["SVTYPE"] = "BND"
+
+            ret = [record1, record2]
+
         self._decomp_repr = ret
         return ret
 
